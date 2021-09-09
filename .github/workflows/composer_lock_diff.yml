@@ -1,0 +1,62 @@
+name: Composer lock diff
+on: 
+  workflow_dispatch:
+    inputs:
+      base_branch:
+        description: 'base branch to check out'
+        required: false
+        default: 'trunk'
+
+defaults:
+  run:
+    shell: bash
+    working-directory: difftest
+
+jobs:
+  full:
+    name: Composer lock diff.
+
+    runs-on: ubuntu-18.04
+
+    env:
+      CI: GITHUB_ACTIONS
+
+    steps:
+      - name: Setup PHP with composer v2
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '7.4'
+          tools: composer:v2
+          coverage: none # Disable xDebug
+        env:
+          COMPOSER_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: checkout
+        uses: actions/checkout@v2
+        with:
+          ref: ${{ github.event.inputs.base_branch }} 
+          path: 'difftest'
+          fetch-depth: 0
+
+
+      - name: install lock diff diff
+        run: composer global require davidrjonas/composer-lock-diff:^1.0
+
+      - name: run lock diff
+        run: |
+          echo "### Composer lock diff \n" > composer_diff.md
+          echo "<!-- composer_lock_diff_comment -->\n\n" > composer_diff.md
+          ~/.composer/vendor/bin/composer-lock-diff --to ${{ github.event.pull_request.head.sha }} --md | sed -z 's/\n/\\n/g' >> composer_diff.md
+          echo "\n\n" >> composer_diff.md
+          echo '{ "body" : "'`cat composer_diff.md`'"}' > composer_diff.json
+          cat composer_diff.json
+           
+     
+      - name: Add comment to PR
+        run: |
+          curl \
+            -X POST \
+            ${{ github.event.pull_request.comments_url }} \
+            -H "Accept: application/vnd.github.v3.raw+json" \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            --data '@composer_diff.json'
